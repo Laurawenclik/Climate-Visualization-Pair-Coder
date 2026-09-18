@@ -129,10 +129,82 @@ function clearValidationHighlight(event) {
   if (!(target instanceof Element)) return;
   target.closest(".invalid")?.classList.remove("invalid");
 }
+async function saveCodingToServer(record) {
+  console.log("ENVOI VERS POSTGRESQL :", record);
+  const response = await fetch("http://127.0.0.1:5000/api/codings", {
+    method: "POST",
+    headers: {"Content-Type": "application/json",},
+    body: JSON.stringify(record),
+  });
 
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || "Unable to save coding.");
+  }
+  console.log("REPONSE SERVEUR :", response.status);
+  return await response.json();
+}
+
+async function saveStatusToServer(status) {
+  const response = await fetch("http://127.0.0.1:5000/api/status", {
+    method: "POST",
+    headers: {"Content-Type": "application/json",},
+    body: JSON.stringify(status),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || "Unable to save status.");
+  }
+  return await response.json();
+}
+// async function saveCurrentRecord({ moveNextAfterSave = false } = {}) {
+//   updateRecordId();
+//   const record = await collectRecord();
+//   const validationErrors = validateRecord(record);
+//   if (validationErrors.length) {
+//     applyValidationErrors(validationErrors);
+//     return;
+//   }
+//   const imageErrors = validateRecordImages(record);
+//   if (imageErrors.length) {
+//     applyValidationErrors(imageErrors);
+//     return;
+//   }
+
+//   const existingIndex = savedRecords.findIndex((item) => item.record_id === record.record_id) ;
+//   if (existingIndex >= 0 && activeLoadedRecord?.record_id !== record.record_id) {
+//     if (!confirm(`A saved record with this ID already exists:\n${record.record_id}\n\nOverwrite it?`)) {
+//       return;
+//     }
+//   }
+//   if (existingIndex >= 0) {
+//     savedRecords[existingIndex] = record;
+//   } else {
+//     savedRecords.push(record);
+//   }
+
+//   try {
+//     await idbPutRecord(record);
+//   } catch (error) {
+//     console.error(error);
+//     showToast("Warning: the record could not be persisted to browser storage. Export soon to avoid losing work.", "error", 8000);
+//   }
+//   persistCoder();
+//   markCurrentRowCompleted(record);
+//   activeLoadedRecord = { ...record };
+//   renderSavedRecords();
+//   markFormClean();
+//   if (moveNextAfterSave && importedRows.length) {
+//     moveToNextAfterSave();
+//     return;
+//   }
+//   showToast("Coded pair saved.", "success");
+// }
 async function saveCurrentRecord({ moveNextAfterSave = false } = {}) {
   updateRecordId();
   const record = await collectRecord();
+
   const validationErrors = validateRecord(record);
   if (validationErrors.length) {
     applyValidationErrors(validationErrors);
@@ -144,33 +216,36 @@ async function saveCurrentRecord({ moveNextAfterSave = false } = {}) {
     return;
   }
 
-  const existingIndex = savedRecords.findIndex((item) => item.record_id === record.record_id);
-  if (existingIndex >= 0 && activeLoadedRecord?.record_id !== record.record_id) {
-    if (!confirm(`A saved record with this ID already exists:\n${record.record_id}\n\nOverwrite it?`)) {
-      return;
-    }
+  const existingIndex = savedRecords.findIndex(
+    (item) =>item.record_id === record.record_id &&item.coder_name === record.coder_name
+  );
+
+  try {
+    await saveCodingToServer(record);
+  } catch (error) {
+    console.error(error);
+    showToast(`Could not save coding to PostgreSQL: ${error.message}`,"error",8000 );
+    return;
   }
+
   if (existingIndex >= 0) {
     savedRecords[existingIndex] = record;
   } else {
     savedRecords.push(record);
   }
 
-  try {
-    await idbPutRecord(record);
-  } catch (error) {
-    console.error(error);
-    showToast("Warning: the record could not be persisted to browser storage. Export soon to avoid losing work.", "error", 8000);
-  }
   persistCoder();
-  markCurrentRowCompleted(record);
+  const statusSaved = await markCurrentRowCompleted(record);
+  if (!statusSaved) {return;}
   activeLoadedRecord = { ...record };
   renderSavedRecords();
   markFormClean();
+
   if (moveNextAfterSave && importedRows.length) {
     moveToNextAfterSave();
     return;
   }
+
   showToast("Coded pair saved.", "success");
 }
 
@@ -446,7 +521,7 @@ function loadRecordIntoForm(recordId, { skipDirtyCheck = false } = {}) {
   markFormClean();
 }
 
-async function loadRecords() {
+async function loadRecordsFromIndexedDB() {
   try {
     const records = await idbGetAllRecords();
     const legacyRaw = localStorage.getItem(recordsStorageKey);
@@ -477,4 +552,17 @@ async function loadRecords() {
       return [];
     }
   }
+}
+async function loadRecords() {
+  const coderName = elements.coderSelect.value;
+
+  if (!coderName) {
+    return [];
+  }
+
+  const response = await fetch(`http://127.0.0.1:5000/api/codings?coder_name=${encodeURIComponent(coderName)}`);
+
+  if (!response.ok) {throw new Error("Unable to load codings from server.");}
+
+  return await response.json();
 }

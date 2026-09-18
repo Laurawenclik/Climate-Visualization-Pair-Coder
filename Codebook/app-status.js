@@ -8,12 +8,34 @@
   ].join("__");
 }
 
-function loadRowState() {
+function loadRowStateFromLocalStorage() {
   try {
     return JSON.parse(localStorage.getItem(rowStateStorageKey) || "{}");
   } catch {
     return emptyGroupedRowState();
   }
+}
+async function loadRowState() {
+  const response = await fetch("http://127.0.0.1:5000/api/status");
+
+  if (!response.ok) {throw new Error("Unable to load status from server.");}
+
+  const statuses = await response.json();
+  const grouped = emptyGroupedRowState();
+
+  statuses.forEach((status) => {
+    const rowKey = status.row_key;
+    if (!rowKey) {return;}
+
+    const group = rowStatusGroups.find(
+      (candidate) =>
+        rowKey === candidate ||
+        rowKey.startsWith(`${candidate}__`)
+    ) || "other";
+    if (!grouped[group]) {grouped[group] = {};}
+    grouped[group][rowKey] = status;
+  });
+  return grouped;
 }
 
 function persistRowState() {
@@ -51,23 +73,57 @@ function getNavigableRows() {
   });
 }
 
-function markCurrentRowCompleted(record) {
+// function markCurrentRowCompleted(record) {
+//   const group = currentMediaRow?.__sourceGroup || "other";
+//   const rowKey = currentMediaRow?.__rowKey || `manual__${record.record_id}`;
+//   rowState[group][rowKey] = {
+//     ...(rowState[group][rowKey] || {}),
+//     disposition: "completed",
+//     completed_by: record.coder_name,
+//     completed_at: record.coded_at,
+//     record_id: record.record_id,
+//     updated_by: record.coder_name,
+//     updated_at: record.coded_at,
+//   };
+//   persistRowState();
+//   populateMediaCsvSelect();
+//   if (currentMediaRow && getNavigableRows().some((row) => row.__rowIndex === currentMediaRow.__rowIndex)) {
+//     elements.mediaCsvSelect.value = currentMediaRow.__rowIndex;
+//   }
+// }
+async function markCurrentRowCompleted(record) {
   const group = currentMediaRow?.__sourceGroup || "other";
   const rowKey = currentMediaRow?.__rowKey || `manual__${record.record_id}`;
-  rowState[group][rowKey] = {
-    ...(rowState[group][rowKey] || {}),
+
+  const status = {
+    row_key: rowKey,
     disposition: "completed",
+    source_unclear: "",
     completed_by: record.coder_name,
     completed_at: record.coded_at,
     record_id: record.record_id,
     updated_by: record.coder_name,
     updated_at: record.coded_at,
   };
-  persistRowState();
+
+  try {
+    await saveStatusToServer(status);
+  } catch (error) {
+    console.error(error);
+    showToast(`Coding saved, but status could not be saved to PostgreSQL: ${error.message}`,"error",8000);
+    return false;
+  }
+  rowState[group][rowKey] = status;
+  //persistRowState();
   populateMediaCsvSelect();
-  if (currentMediaRow && getNavigableRows().some((row) => row.__rowIndex === currentMediaRow.__rowIndex)) {
+
+  if (
+    currentMediaRow && getNavigableRows().some(
+      (row) => row.__rowIndex === currentMediaRow.__rowIndex)
+  ) {
     elements.mediaCsvSelect.value = currentMediaRow.__rowIndex;
   }
+  return true;
 }
 
 function markCurrentRowSourceUnclear() {

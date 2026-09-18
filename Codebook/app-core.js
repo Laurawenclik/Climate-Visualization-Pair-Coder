@@ -419,7 +419,7 @@ let formCleanSnapshot = "";
 let lastManualMediaIndex = "";
 
 async function init() {
-  rowState = normalizeRowState(loadRowState());
+  rowState = normalizeRowState(await loadRowState());
   renderCodebook();
   attachFilePreview(elements.sourceImageInput, elements.sourcePreview, "source_image");
   initFilePickerLabels();
@@ -454,7 +454,28 @@ async function init() {
     elements.mediaUpdatedDateInput.value = formatDateForDisplay(elements.mediaUpdatedDateInput.value);
     syncMediaUpdatedDateState();
   });
-  elements.coderSelect.addEventListener("change", persistCoder);
+  // elements.coderSelect.addEventListener("change", persistCoder);
+  elements.coderSelect.addEventListener("change", async () => {
+    persistCoder();
+
+    try {
+      savedRecords = await loadRecords();
+      renderSavedRecords();
+      if (currentMediaRow) {
+        const savedRecord = findSavedRecordForMediaRow(currentMediaRow);
+        if (savedRecord) {
+          loadRecordIntoForm(savedRecord.record_id, {skipDirtyCheck: true,});
+        } else {
+          clearCodingStateForMediaRowChange();
+          applyMediaRow(currentMediaRow);
+          markFormClean();
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      showToast(`Unable to reload codings: ${error.message}`,"error",8000);
+    }
+  });
   elements.saveNextBtn.addEventListener("click", () => saveCurrentRecord({ moveNextAfterSave: true }));
   elements.exportCsvBtn.addEventListener("click", exportCsv);
   elements.clearFormBtn.addEventListener("click", () => resetForm());
