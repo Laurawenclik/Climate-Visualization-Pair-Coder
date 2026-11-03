@@ -142,48 +142,125 @@ function markCurrentRowSourceUnclear() {
   handleMediaRowSelection();
 }
 
-function setCurrentRowDisposition(disposition) {
+// function setCurrentRowDisposition(disposition) {
+//   if (!currentMediaRow?.__rowKey) return;
+//   if (disposition === "deleted" && !confirm("Delete this media row from the current coding queue?")) {
+//     return;
+//   }
+//   const currentRowIndex = currentMediaRow.__rowIndex;
+//   const group = currentMediaRow.__sourceGroup || "other";
+//   const previousState = rowState[group][currentMediaRow.__rowKey]
+//     ? { ...rowState[group][currentMediaRow.__rowKey] }
+//     : null;
+//   lastRowDispositionChange = {
+//     group,
+//     rowKey: currentMediaRow.__rowKey,
+//     rowIndex: currentRowIndex,
+//     previousState,
+//   };
+//   const rowsBefore = getNavigableRows();
+//   const currentPosition = rowsBefore.findIndex((row) => row.__rowIndex === currentRowIndex);
+//   rowState[group][currentMediaRow.__rowKey] = {
+//     ...(rowState[group][currentMediaRow.__rowKey] || {}),
+//     disposition,
+//     completed_by: disposition === "completed" ? (rowState[group][currentMediaRow.__rowKey]?.completed_by || "") : "",
+//     completed_at: disposition === "completed" ? (rowState[group][currentMediaRow.__rowKey]?.completed_at || "") : "",
+//     record_id: disposition === "completed" ? (rowState[group][currentMediaRow.__rowKey]?.record_id || "") : "",
+//     updated_by: getFormValue("coder_name"),
+//     updated_at: new Date().toISOString(),
+//   };
+//   persistRowState();
+//   const rows = getNavigableRows();
+//   populateMediaCsvSelect();
+//   if (!rows.length) {
+//     currentMediaRow = null;
+//     elements.mediaCsvSelect.value = "";
+//     applyMediaRow(null);
+//     return;
+//   }
+//   const nextIndex = currentPosition === -1
+//     ? 0
+//     : Math.min(currentPosition, rows.length - 1);
+//   const nextRow = rows[nextIndex] || rows[0];
+//   elements.mediaCsvSelect.value = nextRow.__rowIndex;
+//   handleMediaRowSelection({ resetCoding: true, skipDirtyCheck: true });
+// }
+
+async function setCurrentRowDisposition(disposition) {
   if (!currentMediaRow?.__rowKey) return;
-  if (disposition === "deleted" && !confirm("Delete this media row from the current coding queue?")) {
+
+  if (disposition === "deleted" &&!confirm("Delete this media row from the current coding queue?")) {
     return;
   }
+
   const currentRowIndex = currentMediaRow.__rowIndex;
+  const rowKey = currentMediaRow.__rowKey;
   const group = currentMediaRow.__sourceGroup || "other";
-  const previousState = rowState[group][currentMediaRow.__rowKey]
-    ? { ...rowState[group][currentMediaRow.__rowKey] }
-    : null;
+
+  const previousState = rowState[group][rowKey]? { ...rowState[group][rowKey] }: null;
+
   lastRowDispositionChange = {
     group,
-    rowKey: currentMediaRow.__rowKey,
+    rowKey,
     rowIndex: currentRowIndex,
     previousState,
   };
+
   const rowsBefore = getNavigableRows();
   const currentPosition = rowsBefore.findIndex((row) => row.__rowIndex === currentRowIndex);
-  rowState[group][currentMediaRow.__rowKey] = {
-    ...(rowState[group][currentMediaRow.__rowKey] || {}),
+
+  const previous = rowState[group][rowKey] || {};
+
+  const status = {
+    ...previous,
+    row_key: rowKey,
     disposition,
-    completed_by: disposition === "completed" ? (rowState[group][currentMediaRow.__rowKey]?.completed_by || "") : "",
-    completed_at: disposition === "completed" ? (rowState[group][currentMediaRow.__rowKey]?.completed_at || "") : "",
-    record_id: disposition === "completed" ? (rowState[group][currentMediaRow.__rowKey]?.record_id || "") : "",
+    source_unclear: previous.source_unclear || "",
+    completed_by: disposition === "completed"? previous.completed_by || "": "",
+    completed_at: disposition === "completed"? previous.completed_at || "": "",
+    record_id: disposition === "completed"? previous.record_id || "": "",
     updated_by: getFormValue("coder_name"),
     updated_at: new Date().toISOString(),
   };
-  persistRowState();
+
+  rowState[group][rowKey] = status;
+
+  try {
+    await saveStatusToServer(status);
+  } catch (error) {
+    if (previousState) {
+      rowState[group][rowKey] = previousState;
+    } else {
+      delete rowState[group][rowKey];
+    }
+
+    console.error("Unable to save row status:", error);
+
+    showToast(
+      `Could not save status to PostgreSQL: ${error.message}`,
+      "error",
+      8000
+    );
+
+    return;
+  }
   const rows = getNavigableRows();
   populateMediaCsvSelect();
+
   if (!rows.length) {
     currentMediaRow = null;
     elements.mediaCsvSelect.value = "";
     applyMediaRow(null);
     return;
   }
-  const nextIndex = currentPosition === -1
-    ? 0
-    : Math.min(currentPosition, rows.length - 1);
+
+  const nextIndex = currentPosition === -1? 0 : Math.min(currentPosition, rows.length - 1);
+
   const nextRow = rows[nextIndex] || rows[0];
+
   elements.mediaCsvSelect.value = nextRow.__rowIndex;
-  handleMediaRowSelection({ resetCoding: true, skipDirtyCheck: true });
+
+  handleMediaRowSelection({resetCoding: true,skipDirtyCheck: true,});
 }
 
 function undoLastRowDisposition() {

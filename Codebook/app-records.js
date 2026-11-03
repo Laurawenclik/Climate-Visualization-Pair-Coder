@@ -144,6 +144,26 @@ async function saveCodingToServer(record) {
   console.log("REPONSE SERVEUR :", response.status);
   return await response.json();
 }
+async function deleteCodingFromServer(recordId, coderName) {
+  const response = await fetch("http://127.0.0.1:5000/api/codings", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      record_id: recordId,
+      coder_name: coderName,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || "Unable to delete coding from PostgreSQL.");
+  }
+
+  return data;
+}
 
 async function saveStatusToServer(status) {
   const response = await fetch("http://127.0.0.1:5000/api/status", {
@@ -337,16 +357,59 @@ function renderSavedRecords() {
   });
 }
 
+// async function deleteRecord(recordId) {
+//   if (!confirm(`Delete saved record\n${recordId}\nfrom this browser?`)) return;
+//   savedRecords = savedRecords.filter((record) => record.record_id !== recordId);
+//   try {
+//     await idbDeleteRecord(recordId);
+//   } catch (error) {
+//     console.error(error);
+//   }
+//   renderSavedRecords();
+//   showToast("Record deleted.", "info");
+// }
+
+
 async function deleteRecord(recordId) {
-  if (!confirm(`Delete saved record\n${recordId}\nfrom this browser?`)) return;
-  savedRecords = savedRecords.filter((record) => record.record_id !== recordId);
+  const record = savedRecords.find((item) => item.record_id === recordId );
+
+  if (!record) {
+    showToast("Record not found.", "error");
+    return;
+  }
+
+  const coderName = record.coder_name;
+
+  if (!confirm(`Delete saved record\n${recordId}\nfor ${coderName}?`)) {
+    return;
+  }
+
   try {
-    await idbDeleteRecord(recordId);
+    const result = await deleteCodingFromServer(recordId,coderName);
+    savedRecords = savedRecords.filter(
+      (item) =>!(item.record_id === recordId && item.coder_name === coderName)
+    );
+
+    try {
+      await idbDeleteRecord(recordId);
+    } catch (error) {console.error("IndexedDB deletion error:", error);}
+
+    if (result.status_deleted) {
+      Object.keys(rowState).forEach((group) => {
+        if (rowState[group]?.[currentMediaRow?.__rowKey]) {
+          delete rowState[group][currentMediaRow.__rowKey];
+        }
+      });
+    }
+
+    renderSavedRecords();
+
+    showToast("Record deleted.", "info");
+
   } catch (error) {
     console.error(error);
+    showToast(`Could not delete coding from PostgreSQL: ${error.message}`,"error",8000);
   }
-  renderSavedRecords();
-  showToast("Record deleted.", "info");
 }
 
 function resetForm(initialLoad = false) {

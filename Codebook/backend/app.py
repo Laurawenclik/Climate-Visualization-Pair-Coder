@@ -344,5 +344,80 @@ def save_status():
         return jsonify({"success": False,"error": str(error)}), 500
 
 
+@app.route("/api/codings", methods=["DELETE"])
+def delete_coding():
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "No data provided."}), 400
+
+    record_id = data.get("record_id")
+    coder_name = data.get("coder_name")
+
+    if not record_id or not coder_name:
+        return jsonify({"error": "record_id and coder_name are required."}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            DELETE FROM public.result WHERE record_id = %s AND coder_name = %s
+            """,
+            (record_id, coder_name)
+        )
+
+        deleted_count = cursor.rowcount
+
+        if deleted_count == 0:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return jsonify({"success": False,"error": "Coding not found."}), 404
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM public.result WHERE record_id = %s
+            """,
+            (record_id,)
+        )
+
+        remaining_codings = cursor.fetchone()[0]
+
+        if remaining_codings == 0:
+            cursor.execute(
+                """
+                DELETE FROM public.status WHERE record_id = %s
+                """,
+                (record_id,)
+            )
+
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "record_id": record_id,
+            "coder_name": coder_name,
+            "remaining_codings": remaining_codings,
+            "status_deleted": remaining_codings == 0
+        })
+
+    except Exception as error:
+        print("Error while deleting coding:", error)
+
+        try:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+        except Exception:
+            pass
+
+        return jsonify({"success": False,"error": str(error)}), 500
+
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1",port=5000,debug=True)
